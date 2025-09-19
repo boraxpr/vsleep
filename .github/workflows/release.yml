@@ -2,11 +2,15 @@ name: release-binaries
 
 on:
   push:
-    tags:
-      - "v*"
+    tags: ["v*"]
+  workflow_dispatch: {} # let you trigger manually too
 
 permissions:
-  contents: write # required to create/upload release assets
+  contents: write
+
+defaults:
+  run:
+    shell: bash # <<< makes windows-latest use bash
 
 jobs:
   build:
@@ -16,7 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        py: ["3.12"] # Nuitka is most stable on 3.12
+        py: ["3.12"]
 
     env:
       APP_NAME: vsleep
@@ -25,8 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.py }}
 
@@ -36,8 +39,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y patchelf build-essential
 
-      # Windows runners already have MSVC; macOS has Xcode CLT preinstalled.
-
       - name: Install Python deps
         run: |
           python -m pip install -U pip wheel setuptools
@@ -45,11 +46,10 @@ jobs:
 
       - name: Compute artifact name
         id: names
-        shell: bash
         run: |
           case "${{ runner.os }}" in
             Linux)   SUFFIX="linux-amd64" && EXE="${APP_NAME}" ;;
-            macOS)   SUFFIX="macos-universal" && EXE="${APP_NAME}" ;;
+            macOS)   SUFFIX="macos-arm64" && EXE="${APP_NAME}" ;;   # see note below
             Windows) SUFFIX="windows-amd64.exe" && EXE="${APP_NAME}.exe" ;;
           esac
           echo "SUFFIX=$SUFFIX" >> $GITHUB_OUTPUT
@@ -57,43 +57,36 @@ jobs:
 
       - name: Build with Nuitka (onefile+standalone)
         run: |
-          python -m nuitka "${ENTRYPOINT}" \
+          python -m nuitka "$ENTRYPOINT" \
             --onefile \
             --standalone \
             --include-package=alive_progress \
             --assume-yes-for-downloads \
-            --output-filename=${{ steps.names.outputs.EXE }}
+            --output-filename="${{ steps.names.outputs.EXE }}"
 
       - name: Package artifact
-        shell: bash
+        id: pkg
         run: |
           OUT="${APP_NAME}-${{ steps.names.outputs.SUFFIX }}"
           mkdir -p dist
           mv "${{ steps.names.outputs.EXE }}" "dist/${OUT}"
-          # make sure it’s executable on unix
           if [ "${{ runner.os }}" != "Windows" ]; then chmod +x "dist/${OUT}"; fi
           echo "OUT=dist/${OUT}" >> $GITHUB_OUTPUT
-        id: pkg
 
-      - name: Upload artifact (CI)
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.names.outputs.SUFFIX }}
           path: ${{ steps.pkg.outputs.OUT }}
 
   release:
-    name: Attach to GitHub Release
     needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: release_assets
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v2
         with:
-          files: |
-            release_assets/**/*
+          files: release_assets/**/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
