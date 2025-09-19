@@ -61,9 +61,9 @@ jobs:
             --onefile \
             --standalone \
             --include-package=alive_progress \
-            --include-package=graphme \
+            --include-package=grapheme \
             --include-package-data=alive_progress \
-            --include-package-data=graphme \
+            --include-package-data=grapheme \
             --assume-yes-for-downloads \
             --output-filename="${{ steps.names.outputs.EXE }}"
 
